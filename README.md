@@ -56,6 +56,13 @@ Player-to-player payment interface
 
 Extend Ecotale with these companion plugins:
 
+### EcotaleMarket - Market System
+A complete player-driven economy marketplace for Hytale servers. Buy and sell items globally with a user-friendly UI.
+
+![EcotaleMarket Preview](docs/screenshots/market_sell.gif)
+
+![EcotaleMarket Preview](docs/screenshots/market_buy.gif)
+
 ### EcotaleCoins - Physical Currency
 Transform your virtual economy into a tangible experience with physical coin items.
 

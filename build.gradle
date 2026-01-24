@@ -121,15 +121,24 @@ shadowJar {
     // Note: Not relocating SimpleHUD-Lib due to Java 25 ASM compatibility
     // This is fine since SimpleHUD-Lib is bundled, not a shared library
     
+    // START OPTIMIZATIONS
+    // Exclude H2 Web Console and Tools (saves space, not used by plugin)
+    exclude 'org/h2/server/web/**'
+    exclude 'org/h2/tools/**'
+    exclude 'org/h2/jmx/**'
+    
+    // Exclude unneeded Metadata
+    exclude 'META-INF/versions/**'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
+    exclude 'META-INF/*.SF'
+    exclude 'module-info.class'
+    exclude '**/package-info.class'
+    exclude 'LICENSE'
+    exclude 'NOTICE'
+    // END OPTIMIZATIONS
+
     mergeServiceFiles()
 }
 
-// Task to copy built JAR to Hytale plugins folder
-tasks.register('installPlugin', Copy) {
-    dependsOn jar
-    from jar.archiveFile
-    into file(System.getProperty("user.home") + "/AppData/Roaming/Hytale/server/plugins")
-    doLast {
-        println "Installed ${project.mod_name}-${project.mod_version}.jar to plugins folder"
-    }
-}
+
