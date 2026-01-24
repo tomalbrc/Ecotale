@@ -18,6 +18,9 @@ tasks.withType(JavaCompile) {
 
 repositories {
     mavenCentral()
+    maven {
+        url "https://repo.codemc.io/repository/creatorfromhell/"
+    }
 }
 
 dependencies {
@@ -37,6 +40,10 @@ dependencies {
     
     // SimpleHUD-Lib is now inlined in com.ecotale.lib.simplehud
     // No external dependency needed
+
+    //VaultUnlocked
+    compileOnly 'net.cfh.vault:VaultUnlocked:2.18.3'
+    compileOnly 'org.jetbrains:annotations:26.0.2'
 }
 
 processResources {
