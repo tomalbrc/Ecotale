@@ -1,3 +1,13 @@
+## ⚠️ Archived Project
+
+This repository has been archived and is no longer receiving public updates on github.
+
+**The code remains available under the MIT License** for use, modification, and distribution according to its terms.
+
+Development continues in a private version. If you're interested in commercial licensing or collaboration, feel free to reach out at @michidevcl on discord
+
+Thank you to everyone who used and contributed to this project! 
+
 # Ecotale - Economy Plugin for Hytale
 
 A complete economy system plugin for Hytale servers with persistent storage, customizable HUD, and multi-language support.
