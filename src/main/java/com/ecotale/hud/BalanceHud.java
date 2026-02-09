@@ -2,14 +2,16 @@ package com.ecotale.hud;
 
 import com.buuz135.mhud.MultipleHUD;
 import com.ecotale.api.EcotaleAPI;
+import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.entity.entities.Player;
 import com.hypixel.hytale.server.core.entity.entities.player.hud.CustomUIHud;
-import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.ui.builder.UICommandBuilder;
+import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.Universe;
 import com.hypixel.hytale.server.core.util.NotificationUtil;
 import org.jetbrains.annotations.NotNull;
 
+import java.awt.*;
 import java.util.UUID;
 
 public class BalanceHud extends CustomUIHud {
@@ -57,7 +59,7 @@ public class BalanceHud extends CustomUIHud {
             MultipleHUD.getInstance().setCustomHud(player, playerRef, "ecotale", hud);
 
             if (diff != null && diff != 0) {
-                NotificationUtil.sendNotification(playerRef.getPacketHandler(), (diff >= 0 ? "+" : "-") + " " + EcotaleAPI.format(diff));
+                NotificationUtil.sendNotification(playerRef.getPacketHandler(), Message.raw((diff >= 0 ? "+" : "-") + " " + EcotaleAPI.format(diff)).color(diff < 0 ? Color.RED : Color.GREEN));
             }
         }
     }
