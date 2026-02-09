@@ -3,9 +3,7 @@ package com.ecotale.commands;
 import com.ecotale.Main;
 import com.ecotale.economy.PlayerBalance;
 import com.ecotale.gui.EcoAdminGui;
-import com.ecotale.hud.BalanceHud;
 import com.ecotale.systems.BalanceHudSystem;
-
 import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.command.system.CommandContext;
 import com.hypixel.hytale.server.core.command.system.CommandSender;
@@ -16,7 +14,7 @@ import com.hypixel.hytale.server.core.entity.entities.Player;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import org.checkerframework.checker.nullness.compatqual.NonNullDecl;
 
-import java.awt.Color;
+import java.awt.*;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -125,8 +123,8 @@ public class EcoAdminCommand extends AbstractAsyncCommand {
                 
                 double oldBalance = Main.getInstance().getEconomyManager().getBalance(playerRef.getUuid());
                 Main.getInstance().getEconomyManager().setBalance(playerRef.getUuid(), amount, "Admin set");
-                updateHud(playerRef.getUuid(), amount);
-                
+                BalanceHudSystem.updatePlayerHud(playerRef.getUuid(), amount);
+
                 player.sendMessage(Message.join(
                     Message.raw("Balance set: ").color(Color.GREEN),
                     Message.raw(Main.CONFIG.get().format(oldBalance)).color(Color.GRAY),
@@ -177,8 +175,8 @@ public class EcoAdminCommand extends AbstractAsyncCommand {
                 
                 Main.getInstance().getEconomyManager().deposit(playerRef.getUuid(), amount, "Admin give");
                 double newBalance = Main.getInstance().getEconomyManager().getBalance(playerRef.getUuid());
-                updateHud(playerRef.getUuid(), newBalance);
-                
+                BalanceHudSystem.updatePlayerHud(playerRef.getUuid(), newBalance);
+
                 player.sendMessage(Message.join(
                     Message.raw("Added ").color(Color.GREEN),
                     Message.raw("+" + Main.CONFIG.get().format(amount)).color(new Color(50, 205, 50)),
@@ -226,8 +224,8 @@ public class EcoAdminCommand extends AbstractAsyncCommand {
                 
                 boolean success = Main.getInstance().getEconomyManager().withdraw(playerRef.getUuid(), amount, "Admin take");
                 double newBalance = Main.getInstance().getEconomyManager().getBalance(playerRef.getUuid());
-                updateHud(playerRef.getUuid(), newBalance);
-                
+                BalanceHudSystem.updatePlayerHud(playerRef.getUuid(), newBalance);
+
                 if (success) {
                     player.sendMessage(Message.join(
                         Message.raw("Removed ").color(Color.YELLOW),
@@ -269,8 +267,8 @@ public class EcoAdminCommand extends AbstractAsyncCommand {
                 
                 double startingBalance = Main.CONFIG.get().getStartingBalance();
                 Main.getInstance().getEconomyManager().setBalance(playerRef.getUuid(), startingBalance, "Admin reset");
-                updateHud(playerRef.getUuid(), startingBalance);
-                
+                BalanceHudSystem.updatePlayerHud(playerRef.getUuid(), startingBalance);
+
                 player.sendMessage(Message.join(
                     Message.raw("Balance reset to ").color(Color.GREEN),
                     Message.raw(Main.CONFIG.get().format(startingBalance)).color(new Color(50, 205, 50))
@@ -399,14 +397,6 @@ public class EcoAdminCommand extends AbstractAsyncCommand {
                 ctx.sendMessage(Message.raw("Performance monitor is not active.").color(Color.RED));
             }
             return CompletableFuture.completedFuture(null);
-        }
-    }
-    
-    // ========== HELPER METHODS ==========
-    private static void updateHud(UUID playerUuid, double newBalance) {
-        BalanceHud hud = BalanceHudSystem.getHud(playerUuid);
-        if (hud != null) {
-            hud.updateBalance(newBalance);
         }
     }
 }

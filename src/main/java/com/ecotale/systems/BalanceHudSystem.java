@@ -1,9 +1,10 @@
 package com.ecotale.systems;
 
 import com.ecotale.hud.BalanceHud;
+import com.hypixel.hytale.server.core.entity.entities.Player;
+import com.hypixel.hytale.server.core.universe.Universe;
 
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Tracks active balance HUDs for updates
@@ -11,50 +12,24 @@ import java.util.concurrent.ConcurrentHashMap;
  * Uses static methods for easy access from EconomyManager
  */
 public class BalanceHudSystem {
-    
-    // Track active HUDs for each player
-    private static final ConcurrentHashMap<UUID, BalanceHud> activeHuds = new ConcurrentHashMap<>();
-    
-    /**
-     * Register a HUD for a player
-     */
-    public static void registerHud(UUID playerUuid, BalanceHud hud) {
-        activeHuds.put(playerUuid, hud);
-    }
-    
     /**
      * Update a player's balance HUD when their balance changes
      */
     public static void updatePlayerHud(UUID playerUuid, double newBalance) {
-        BalanceHud hud = activeHuds.get(playerUuid);
-        if (hud != null) {
-            hud.updateBalance(newBalance);
-        }
-    }
-    
-    /**
-     * Remove HUD tracking when player leaves
-     */
-    public static void removePlayerHud(UUID playerUuid) {
-        BalanceHud hud = activeHuds.remove(playerUuid);
-        if (hud != null) {
-            hud.cleanup(); // Cancel any pending animations
-        }
-    }
+        var playerRef = Universe.get().getPlayer(playerUuid);
+        assert playerRef != null;
 
-    /**
-     * Get the active HUD for a player
-     */
-    public static BalanceHud getHud(UUID playerUuid) {
-        return activeHuds.get(playerUuid);
-    }
-    
-    /**
-     * Refresh all active HUDs (for config changes like symbol/formatting)
-     */
-    public static void refreshAllHuds() {
-        for (BalanceHud hud : activeHuds.values()) {
-            hud.refresh();
-        }
+        BalanceHud hud = new BalanceHud(Universe.get().getPlayer(playerUuid));
+
+        assert playerRef.getWorldUuid() != null;
+
+        var world = Universe.get().getWorld(playerRef.getWorldUuid());
+        assert world != null;
+
+        var ref = world.getEntityStore().getRefFromUUID(playerUuid);
+        assert ref != null;
+
+        var player = world.getEntityStore().getStore().getComponent(ref, Player.getComponentType());
+        com.ecotale.util.HudHelper.setCustomHud(player, playerRef, hud);
     }
 }

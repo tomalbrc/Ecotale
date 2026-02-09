@@ -4,7 +4,6 @@ import com.ecotale.Main;
 import com.ecotale.economy.PlayerBalance;
 import com.ecotale.economy.TransactionEntry;
 import com.ecotale.economy.TransactionLogger;
-import com.ecotale.systems.BalanceHudSystem;
 import com.hypixel.hytale.codec.Codec;
 import com.hypixel.hytale.codec.KeyedCodec;
 import com.hypixel.hytale.codec.builder.BuilderCodec;
@@ -22,15 +21,15 @@ import com.hypixel.hytale.server.core.universe.Universe;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import org.checkerframework.checker.nullness.compatqual.NonNullDecl;
 
-import java.awt.Color;
-import java.util.*;
+import java.awt.*;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
  * EcoAdminGui - Complete admin panel for economy management.
- * 
  * Triggered by: /eco (without subcommands)
- * 
  * Features:
  * - Dashboard with stats (total circulating, player count, average)
  * - Player list with give/take/set/reset actions
@@ -388,7 +387,6 @@ public class EcoAdminGui extends InteractiveCustomUIPage<EcoAdminGui.AdminGuiDat
                 }
                 case "SaveConfig" -> {
                     Main.CONFIG.save();
-                    BalanceHudSystem.refreshAllHuds(); // Apply config changes to all HUDs
                     playerRef.sendMessage(Message.raw("Configuration saved to file!").color(Color.GREEN));
                     refreshUI(ref, store);
                     return;
@@ -432,7 +430,6 @@ public class EcoAdminGui extends InteractiveCustomUIPage<EcoAdminGui.AdminGuiDat
                     config.setEnableHudDisplay(true);
                     config.setLanguage("en-US");
                     config.setUsePlayerLanguage(false);
-                    BalanceHudSystem.refreshAllHuds();
                     playerRef.sendMessage(Message.raw("Config reset to defaults!").color(Color.YELLOW));
                     refreshUI(ref, store);
                     return;

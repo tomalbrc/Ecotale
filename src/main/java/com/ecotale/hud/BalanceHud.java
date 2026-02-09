@@ -15,9 +15,6 @@ import java.util.concurrent.ScheduledFuture;
  * @author michiweon
  */
 public class BalanceHud extends SimpleHud {
-    
-    // HUD enabled/disabled is now controlled by config: EnableHudDisplay
-    
     private static final int MIN_STEPS = 15;
     private static final int MAX_STEPS = 30;
     private static final long STEP_INTERVAL_MS = 50;
@@ -25,7 +22,6 @@ public class BalanceHud extends SimpleHud {
     // If change is less than 0.1% of balance, use trailing digits
     private static final double TRAILING_THRESHOLD = 0.001;
     private final PlayerRef ownerRef;
-
     
     private double displayedBalance = 0;
     private double targetBalance = 0;
@@ -179,6 +175,10 @@ public class BalanceHud extends SimpleHud {
         this.setText("CurrencyName", hudPrefix);
         this.setText("BalanceSymbol", symbol);
         this.setText("BalanceAmount", amount);
+
+        if (ownerRef.getReference() == null || !ownerRef.getReference().isValid())
+            return;
+
         this.pushUpdates();
     }
 

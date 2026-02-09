@@ -24,7 +24,6 @@ import java.util.logging.Level;
 
 /**
  * Ecotale - Economy plugin for Hytale
- * 
  * Features:
  * - Player balances with persistent storage
  * - On-screen HUD balance display
@@ -62,10 +61,7 @@ public class Main extends JavaPlugin {
 
         // Check for VaultUnlocked support
         initVaultUnlocked();
-        
-        // Check for MultipleHUD compatibility
-        com.ecotale.util.HudHelper.init();
-        
+
         // Register commands
         this.getCommandRegistry().registerCommand(new BalanceCommand());
         this.getCommandRegistry().registerCommand(new PayCommand());
@@ -88,17 +84,8 @@ public class Main extends JavaPlugin {
                 
                 // Setup Balance HUD if enabled
                 if (Main.CONFIG.get().isEnableHudDisplay()) {
-                    // Check if player already has a HUD (world change, not first join)
-                    BalanceHud existingHud = com.ecotale.systems.BalanceHudSystem.getHud(playerRef.getUuid());
-                    if (existingHud != null) {
-                        // Reuse existing HUD, just re-register with HudManager
-                        com.ecotale.util.HudHelper.setCustomHud(player, playerRef, existingHud);
-                    } else {
-                        // First join - create new HUD
-                        BalanceHud hud = new BalanceHud(playerRef);
-                        com.ecotale.util.HudHelper.setCustomHud(player, playerRef, hud);
-                        com.ecotale.systems.BalanceHudSystem.registerHud(playerRef.getUuid(), hud);
-                    }
+                    BalanceHud hud = new BalanceHud(playerRef);
+                    com.ecotale.util.HudHelper.setCustomHud(player, playerRef, hud);
                 }
             }
         });
@@ -106,14 +93,9 @@ public class Main extends JavaPlugin {
         // Cleanup when player disconnects
         this.getEventRegistry().registerGlobal(PlayerDisconnectEvent.class, (event) -> {
             var playerRef = event.getPlayerRef();
-            if (playerRef != null) {
-                com.ecotale.systems.BalanceHudSystem.removePlayerHud(playerRef.getUuid());
-                this.economyManager.scheduleEviction(playerRef.getUuid());
-                com.ecotale.api.EcotaleAPI.resetRateLimit(playerRef.getUuid());
-            }
+            this.economyManager.scheduleEviction(playerRef.getUuid());
+            EcotaleAPI.resetRateLimit(playerRef.getUuid());
         });
-        
-
 
         // Initialize security logger
         // Initialize performance monitor

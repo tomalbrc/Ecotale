@@ -17,6 +17,9 @@ tasks.withType(JavaCompile) {
 }
 
 repositories {
+    maven { url "https://maven.hytale.com/release" }
+    maven { url "https://cursemaven.com" }
+
     mavenCentral()
     maven {
         url "https://repo.codemc.io/repository/creatorfromhell/"
@@ -25,8 +28,9 @@ repositories {
 
 dependencies {
     // Hytale Server API
-    compileOnly files('z:/Hytale/patcher/work/download/hytale-server.jar')
-    
+    implementation 'com.hypixel.hytale:Server:2026.01.28-87d03be09'
+    implementation("curse.maven:multiplehud-1423634:7530266") // 1.0.4
+
     // Annotations
     compileOnly 'org.checkerframework:checker-qual:3.42.0'
     compileOnly "com.google.code.findbugs:jsr305:3.0.2"
