@@ -1,327 +1,430 @@
 package com.ecotale.storage;
 
 import com.ecotale.Main;
+import com.ecotale.config.EcotaleConfig;
 import com.ecotale.economy.PlayerBalance;
+import com.ecotale.economy.TopBalanceEntry;
 import com.ecotale.economy.TransactionEntry;
 import com.ecotale.economy.TransactionType;
-import com.ecotale.util.EcoLogger;
+import com.ecotale.storage.StorageProvider;
 import com.hypixel.hytale.logger.HytaleLogger;
-
-import javax.annotation.Nonnull;
 import java.io.File;
 import java.nio.file.Path;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.Date;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Instant;
-import java.util.*;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.logging.Level;
+import javax.annotation.Nonnull;
 
-/**
- * H2 Database storage provider for economy data.
- * Stores both player balances and transaction history.
- * 
- * Data is stored in: universe/Ecotale/h2/
- * 
- * Features:
- * - ACID compliant transactions
- * - Indexed queries for fast lookups
- * - Async operations via executor
- * - Connection pooling via single persistent connection
- */
-public class H2StorageProvider implements StorageProvider {
-    
+public class H2StorageProvider
+implements StorageProvider {
     private static final String DB_NAME = "ecotale";
     private static final HytaleLogger LOGGER = HytaleLogger.getLogger().getSubLogger("Ecotale-H2");
-    
-    /** 
-     * Data path: mods/Ecotale_Ecotale/ - same location as plugin config.
-     * Uses relative path from server working directory.
-     */
     private static final Path ECOTALE_PATH = Path.of("mods", "Ecotale_Ecotale");
-    
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "Ecotale-H2-IO");
-        t.setDaemon(false); // Must be non-daemon to ensure tasks complete during shutdown
+        t.setDaemon(false);
         return t;
     });
-    
     private Connection connection;
     private String dbPath;
     private int playerCount = 0;
-    
+
     @Override
     public CompletableFuture<Void> initialize() {
         return CompletableFuture.runAsync(() -> {
             try {
-                // Create data directory in universe/Ecotale/h2/
                 File dataDir = ECOTALE_PATH.toFile();
                 if (!dataDir.exists()) {
                     dataDir.mkdirs();
                 }
-                
-                dbPath = new File(dataDir, DB_NAME).getAbsolutePath();
-                
-                // Explicitly register H2 driver (needed due to classloader issues)
+                this.dbPath = new File(dataDir, DB_NAME).getAbsolutePath();
                 try {
                     Class.forName("org.h2.Driver");
-                } catch (ClassNotFoundException e) {
-                    LOGGER.at(Level.SEVERE).log("H2 Driver class not found: %s", e.getMessage());
+                }
+                catch (ClassNotFoundException e) {
+                    LOGGER.at(Level.SEVERE).log("H2 Driver class not found: %s", (Object)e.getMessage());
                     throw new RuntimeException("H2 Driver not available", e);
                 }
-                
-                // Connect to H2 (creates file if not exists)
-                connection = DriverManager.getConnection(
-                    "jdbc:h2:" + dbPath + ";MODE=MySQL;AUTO_SERVER=FALSE",
-                    "sa", ""
-                );
-                
-                // Create tables
-                createTables();
-                
-                // Count existing players
-                try (Statement stmt = connection.createStatement();
-                     ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM balances")) {
+                this.connection = DriverManager.getConnection("jdbc:h2:" + this.dbPath + ";MODE=MySQL;AUTO_SERVER=FALSE;DB_CLOSE_ON_EXIT=FALSE", "sa", "");
+                this.createTables();
+                try (Statement stmt = this.connection.createStatement();
+                     ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM balances");){
                     if (rs.next()) {
-                        playerCount = rs.getInt(1);
+                        this.playerCount = rs.getInt(1);
                     }
                 }
-                
-                LOGGER.at(Level.INFO).log("H2 database initialized: %s.mv.db (%d players)", dbPath, playerCount);
-                
-            } catch (SQLException e) {
-                LOGGER.at(Level.SEVERE).log("Failed to initialize H2 database: %s", e.getMessage());
+                LOGGER.at(Level.INFO).log("H2 database initialized: %s.mv.db (%d players)", (Object)this.dbPath, this.playerCount);
+            }
+            catch (SQLException e) {
+                LOGGER.at(Level.SEVERE).log("Failed to initialize H2 database: %s", (Object)e.getMessage());
                 throw new RuntimeException(e);
             }
-        }, executor);
+        }, this.executor);
     }
-    
+
     private void createTables() throws SQLException {
-        try (Statement stmt = connection.createStatement()) {
-            // Balances table
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS balances (
-                    uuid VARCHAR(36) PRIMARY KEY,
-                    player_name VARCHAR(64),
-                    balance DOUBLE DEFAULT 0.0,
-                    total_earned DOUBLE DEFAULT 0.0,
-                    total_spent DOUBLE DEFAULT 0.0,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """);
-            
-            // Migration: Add player_name column if missing (for existing databases)
+        try (Statement stmt = this.connection.createStatement();){
+            stmt.execute("    CREATE TABLE IF NOT EXISTS balances (\n        uuid VARCHAR(36) PRIMARY KEY,\n        player_name VARCHAR(64),\n        balance DOUBLE DEFAULT 0.0,\n        total_earned DOUBLE DEFAULT 0.0,\n        total_spent DOUBLE DEFAULT 0.0,\n        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n    )\n");
             try {
                 stmt.execute("ALTER TABLE balances ADD COLUMN IF NOT EXISTS player_name VARCHAR(64)");
-            } catch (SQLException ignored) {
-                // Column already exists or syntax not supported
             }
-            
-            // Transactions table
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS transactions (
-                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                    timestamp BIGINT NOT NULL,
-                    type VARCHAR(20) NOT NULL,
-                    source_uuid VARCHAR(36),
-                    target_uuid VARCHAR(36),
-                    player_name VARCHAR(64),
-                    amount DOUBLE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """);
-            
-            // Create indexes if not exist
+            catch (SQLException sQLException) {
+                // empty catch block
+            }
+            stmt.execute("    CREATE TABLE IF NOT EXISTS transactions (\n        id BIGINT AUTO_INCREMENT PRIMARY KEY,\n        timestamp BIGINT NOT NULL,\n        type VARCHAR(20) NOT NULL,\n        source_uuid VARCHAR(36),\n        target_uuid VARCHAR(36),\n        player_name VARCHAR(64),\n        amount DOUBLE,\n        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n    )\n");
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_tx_timestamp ON transactions(timestamp DESC)");
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_tx_player ON transactions(player_name)");
+            stmt.execute("    CREATE TABLE IF NOT EXISTS balance_snapshots (\n        snap_day DATE NOT NULL,\n        uuid VARCHAR(36) NOT NULL,\n        balance DOUBLE DEFAULT 0.0,\n        PRIMARY KEY(snap_day, uuid)\n    )\n");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_snap_day ON balance_snapshots(snap_day)");
         }
     }
-    
-    // ========== Balance Operations ==========
-    
+
     @Override
     public CompletableFuture<PlayerBalance> loadPlayer(@Nonnull UUID playerUuid) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 String sql = "SELECT balance, total_earned, total_spent FROM balances WHERE uuid = ?";
-                try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                try (PreparedStatement ps = this.connection.prepareStatement(sql);){
                     ps.setString(1, playerUuid.toString());
-                    try (ResultSet rs = ps.executeQuery()) {
+                    try (ResultSet rs = ps.executeQuery();){
                         if (rs.next()) {
                             PlayerBalance pb = new PlayerBalance(playerUuid);
-                            // Use setBalance to set the loaded balance
                             pb.setBalance(rs.getDouble("balance"), "Loaded from DB");
-                            return pb;
+                            PlayerBalance playerBalance = pb;
+                            return playerBalance;
                         }
                     }
                 }
-                
-                // Create new account with starting balance
-                double startingBalance = Main.CONFIG.get().getStartingBalance();
+                double startingBalance = ((EcotaleConfig)Main.CONFIG.get()).getStartingBalance();
                 PlayerBalance newBalance = new PlayerBalance(playerUuid);
                 newBalance.setBalance(startingBalance, "New account");
-                savePlayerSync(playerUuid, newBalance);
-                playerCount++;
+                this.savePlayerSync(playerUuid, newBalance);
+                ++this.playerCount;
                 return newBalance;
-                
-            } catch (SQLException e) {
-                LOGGER.at(Level.SEVERE).log("Failed to load player %s: %s", playerUuid, e.getMessage());
-                // Return default balance on error
+            }
+            catch (SQLException e) {
+                LOGGER.at(Level.SEVERE).log("Failed to load player %s: %s", (Object)playerUuid, (Object)e.getMessage());
                 PlayerBalance pb = new PlayerBalance(playerUuid);
-                pb.setBalance(Main.CONFIG.get().getStartingBalance(), "Error fallback");
+                pb.setBalance(((EcotaleConfig)Main.CONFIG.get()).getStartingBalance(), "Error fallback");
                 return pb;
             }
-        }, executor);
+        }, this.executor);
     }
-    
+
     @Override
     public CompletableFuture<Void> savePlayer(@Nonnull UUID playerUuid, @Nonnull PlayerBalance balance) {
-        return CompletableFuture.runAsync(() -> savePlayerSync(playerUuid, balance), executor);
+        return CompletableFuture.runAsync(() -> this.savePlayerSync(playerUuid, balance), this.executor);
     }
-    
+
     private void savePlayerSync(UUID playerUuid, PlayerBalance balance) {
         try {
-            String sql = """
-                MERGE INTO balances (uuid, balance, total_earned, total_spent, updated_at) 
-                KEY(uuid) 
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """;
-            try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            String sql = "    MERGE INTO balances (uuid, balance, total_earned, total_spent, updated_at)\n    KEY(uuid)\n    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)\n";
+            try (PreparedStatement ps = this.connection.prepareStatement(sql);){
                 ps.setString(1, playerUuid.toString());
                 ps.setDouble(2, balance.getBalance());
                 ps.setDouble(3, balance.getTotalEarned());
                 ps.setDouble(4, balance.getTotalSpent());
                 ps.executeUpdate();
             }
-        } catch (SQLException e) {
-            LOGGER.at(Level.SEVERE).log("Failed to save player %s: %s", playerUuid, e.getMessage());
+        }
+        catch (SQLException e) {
+            LOGGER.at(Level.SEVERE).log("Failed to save player %s: %s", (Object)playerUuid, (Object)e.getMessage());
         }
     }
-    
-    /**
-     * Update player's cached name.
-     * Call this on player join to keep names current.
-     */
+
+    @Override
     public void updatePlayerName(@Nonnull UUID playerUuid, @Nonnull String playerName) {
         CompletableFuture.runAsync(() -> {
-            try {
-                String sql = "UPDATE balances SET player_name = ? WHERE uuid = ?";
-                try (PreparedStatement ps = connection.prepareStatement(sql)) {
-                    ps.setString(1, playerName);
-                    ps.setString(2, playerUuid.toString());
-                    int updated = ps.executeUpdate();
-                    
-                    // If no row was updated, insert a new one with just the name
-                    if (updated == 0) {
-                        String insertSql = """
-                            INSERT INTO balances (uuid, player_name, balance) 
-                            VALUES (?, ?, ?)
-                        """;
-                        try (PreparedStatement insertPs = connection.prepareStatement(insertSql)) {
+            block14: {
+                try {
+                    String sql = "UPDATE balances SET player_name = ? WHERE uuid = ?";
+                    try (PreparedStatement ps = this.connection.prepareStatement(sql);){
+                        ps.setString(1, playerName);
+                        ps.setString(2, playerUuid.toString());
+                        int updated = ps.executeUpdate();
+                        if (updated != 0) break block14;
+                        String insertSql = "    INSERT INTO balances (uuid, player_name, balance)\n    VALUES (?, ?, ?)\n";
+                        try (PreparedStatement insertPs = this.connection.prepareStatement(insertSql);){
                             insertPs.setString(1, playerUuid.toString());
                             insertPs.setString(2, playerName);
-                            insertPs.setDouble(3, com.ecotale.Main.CONFIG.get().getStartingBalance());
+                            insertPs.setDouble(3, ((EcotaleConfig)Main.CONFIG.get()).getStartingBalance());
                             insertPs.executeUpdate();
                         }
                     }
                 }
-            } catch (SQLException e) {
-                LOGGER.at(Level.WARNING).log("Failed to update player name: %s", e.getMessage());
+                catch (SQLException e) {
+                    LOGGER.at(Level.WARNING).log("Failed to update player name: %s", (Object)e.getMessage());
+                }
             }
-        }, executor);
+        }, this.executor);
     }
-    
-    /**
-     * Get cached player name from database (async).
-     * Returns null if not found.
-     */
+
+    @Override
     public CompletableFuture<String> getPlayerNameAsync(@Nonnull UUID playerUuid) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 String sql = "SELECT player_name FROM balances WHERE uuid = ?";
-                try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                try (PreparedStatement ps = this.connection.prepareStatement(sql);){
                     ps.setString(1, playerUuid.toString());
-                    try (ResultSet rs = ps.executeQuery()) {
-                        if (rs.next()) {
-                            return rs.getString("player_name");
+                    try (ResultSet rs = ps.executeQuery();){
+                        if (!rs.next()) return null;
+                        String string = rs.getString("player_name");
+                        return string;
+                    }
+                }
+            }
+            catch (SQLException e) {
+                LOGGER.at(Level.WARNING).log("Failed to get player name: %s", (Object)e.getMessage());
+            }
+            return null;
+        }, this.executor);
+    }
+
+    public CompletableFuture<UUID> getPlayerUuidByName(@Nonnull String playerName) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String sql = "SELECT uuid FROM balances WHERE LOWER(player_name) = ? LIMIT 1";
+                try (PreparedStatement ps = this.connection.prepareStatement(sql);){
+                    ps.setString(1, playerName.toLowerCase());
+                    try (ResultSet rs = ps.executeQuery();){
+                        if (!rs.next()) return null;
+                        UUID uUID = UUID.fromString(rs.getString("uuid"));
+                        return uUID;
+                    }
+                }
+            }
+            catch (SQLException e) {
+                LOGGER.at(Level.WARNING).log("Failed to get UUID by name: %s", (Object)e.getMessage());
+            }
+            return null;
+        }, this.executor);
+    }
+
+    public Map<UUID, String> getAllPlayerNamesSync() {
+        HashMap<UUID, String> result = new HashMap<UUID, String>();
+        try {
+            String sql = "SELECT uuid, player_name FROM balances WHERE player_name IS NOT NULL";
+            try (PreparedStatement ps = this.connection.prepareStatement(sql);
+                 ResultSet rs = ps.executeQuery();){
+                while (rs.next()) {
+                    String uuidStr = rs.getString("uuid");
+                    String name = rs.getString("player_name");
+                    if (name == null || name.isBlank()) continue;
+                    result.put(UUID.fromString(uuidStr), name);
+                }
+            }
+        }
+        catch (SQLException e) {
+            LOGGER.at(Level.WARNING).log("Failed to get all player names: %s", (Object)e.getMessage());
+        }
+        return result;
+    }
+
+    public CompletableFuture<List<PlayerBalance>> getTopBalances(int limit) {
+        return CompletableFuture.supplyAsync(() -> {
+            ArrayList<PlayerBalance> result = new ArrayList<PlayerBalance>();
+            try {
+                String sql = "SELECT uuid, balance, total_earned, total_spent FROM balances ORDER BY balance DESC LIMIT ?";
+                try (PreparedStatement ps = this.connection.prepareStatement(sql);){
+                    ps.setInt(1, limit);
+                    try (ResultSet rs = ps.executeQuery();){
+                        while (rs.next()) {
+                            UUID uuid = UUID.fromString(rs.getString("uuid"));
+                            PlayerBalance pb = new PlayerBalance(uuid);
+                            pb.setBalance(rs.getDouble("balance"), "Top query");
+                            result.add(pb);
                         }
                     }
                 }
-            } catch (SQLException e) {
-                LOGGER.at(Level.WARNING).log("Failed to get player name: %s", e.getMessage());
             }
-            return null;
-        }, executor);
+            catch (SQLException e) {
+                LOGGER.at(Level.WARNING).log("Failed to query top balances: %s", (Object)e.getMessage());
+            }
+            return result;
+        }, this.executor);
     }
-    
-    /**
-     * Get cached player name from database (sync, for backward compat).
-     * @deprecated Use getPlayerNameAsync() to avoid potential deadlocks
-     */
+
+    public CompletableFuture<List<TopBalanceEntry>> queryTopBalancesAsync(int limit, int offset) {
+        return CompletableFuture.supplyAsync(() -> {
+            ArrayList<TopBalanceEntry> result = new ArrayList<TopBalanceEntry>();
+            try {
+                String sql = "SELECT uuid, balance, player_name FROM balances ORDER BY balance DESC LIMIT ? OFFSET ?";
+                try (PreparedStatement ps = this.connection.prepareStatement(sql);){
+                    ps.setInt(1, limit);
+                    ps.setInt(2, offset);
+                    try (ResultSet rs = ps.executeQuery();){
+                        while (rs.next()) {
+                            UUID uuid = UUID.fromString(rs.getString("uuid"));
+                            double balance = rs.getDouble("balance");
+                            String name = rs.getString("player_name");
+                            result.add(new TopBalanceEntry(uuid, name, balance, 0.0));
+                        }
+                    }
+                }
+            }
+            catch (SQLException e) {
+                LOGGER.at(Level.WARNING).log("Failed to query top balances: %s", (Object)e.getMessage());
+            }
+            return result;
+        }, this.executor);
+    }
+
+    public CompletableFuture<List<TopBalanceEntry>> queryTopBalancesPeriodAsync(int limit, int offset, int daysAgo) {
+        return CompletableFuture.supplyAsync(() -> {
+            ArrayList<TopBalanceEntry> result = new ArrayList<TopBalanceEntry>();
+            try {
+                String sql = "    SELECT b.uuid, b.balance, b.player_name,\n           (b.balance - COALESCE(s.balance, 0)) AS trend\n    FROM balances b\n                        LEFT JOIN balance_snapshots s\n                            ON s.uuid = b.uuid AND s.snap_day = ?\n    ORDER BY trend DESC\n    LIMIT ? OFFSET ?\n";
+                try (PreparedStatement ps = this.connection.prepareStatement(sql);){
+                    ps.setDate(1, Date.valueOf(LocalDate.now().minusDays(daysAgo)));
+                    ps.setInt(2, limit);
+                    ps.setInt(3, offset);
+                    try (ResultSet rs = ps.executeQuery();){
+                        while (rs.next()) {
+                            UUID uuid = UUID.fromString(rs.getString("uuid"));
+                            double balance = rs.getDouble("balance");
+                            String name = rs.getString("player_name");
+                            double trend = rs.getDouble("trend");
+                            result.add(new TopBalanceEntry(uuid, name, balance, trend));
+                        }
+                    }
+                }
+            }
+            catch (SQLException e) {
+                LOGGER.at(Level.WARNING).log("Failed to query period balances: %s", (Object)e.getMessage());
+            }
+            return result;
+        }, this.executor);
+    }
+
+    public CompletableFuture<Void> snapshotTodayAsync() {
+        return this.snapshotForDateAsync(LocalDate.now());
+    }
+
+    public CompletableFuture<Void> snapshotForDateAsync(@Nonnull LocalDate date) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                String sql = "    MERGE INTO balance_snapshots (snap_day, uuid, balance)\n    KEY(snap_day, uuid)\n    SELECT ?, uuid, balance FROM balances\n";
+                try (PreparedStatement ps = this.connection.prepareStatement(sql);){
+                    ps.setDate(1, Date.valueOf(date));
+                    ps.executeUpdate();
+                }
+            }
+            catch (SQLException e) {
+                LOGGER.at(Level.WARNING).log("Failed to snapshot balances: %s", (Object)e.getMessage());
+            }
+        }, this.executor);
+    }
+
+    public CompletableFuture<Integer> countPlayersAsync() {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String sql = "SELECT COUNT(*) AS total FROM balances";
+                try (PreparedStatement ps = this.connection.prepareStatement(sql);
+                     ResultSet rs = ps.executeQuery();){
+                    if (!rs.next()) return 0;
+                    Integer n = rs.getInt("total");
+                    return n;
+                }
+            }
+            catch (SQLException e) {
+                LOGGER.at(Level.WARNING).log("Failed to count players: %s", (Object)e.getMessage());
+            }
+            return 0;
+        }, this.executor);
+    }
+
+    public CompletableFuture<Integer> countPlayersWithBalanceGreaterAsync(double balance) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String sql = "SELECT COUNT(*) AS total FROM balances WHERE balance > ?";
+                try (PreparedStatement ps = this.connection.prepareStatement(sql);){
+                    ps.setDouble(1, balance);
+                    try (ResultSet rs = ps.executeQuery();){
+                        if (!rs.next()) return 0;
+                        Integer n = rs.getInt("total");
+                        return n;
+                    }
+                }
+            }
+            catch (SQLException e) {
+                LOGGER.at(Level.WARNING).log("Failed to count balance rank: %s", (Object)e.getMessage());
+            }
+            return 0;
+        }, this.executor);
+    }
+
     @Deprecated
     public String getPlayerName(@Nonnull UUID playerUuid) {
-        return getPlayerNameAsync(playerUuid).join();
+        return this.getPlayerNameAsync(playerUuid).join();
     }
-    
+
     @Override
     public CompletableFuture<Void> saveAll(@Nonnull Map<UUID, PlayerBalance> dirtyPlayers) {
-        return CompletableFuture.runAsync(() -> saveAllSync(dirtyPlayers), executor);
+        return CompletableFuture.runAsync(() -> this.saveAllSync(dirtyPlayers), this.executor);
     }
-    
-    /**
-     * Synchronous version of saveAll for use during shutdown.
-     * Call this directly from the shutdown thread to avoid executor issues.
-     */
+
     public void saveAllSync(@Nonnull Map<UUID, PlayerBalance> dirtyPlayers) {
-        if (dirtyPlayers.isEmpty()) return;
-        
+        if (dirtyPlayers.isEmpty()) {
+            return;
+        }
         try {
-            connection.setAutoCommit(false);
-            String sql = """
-                MERGE INTO balances (uuid, balance, total_earned, total_spent, updated_at) 
-                KEY(uuid) 
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """;
-            
-            int savedCount = 0;
-            try (PreparedStatement ps = connection.prepareStatement(sql)) {
-                // Use individual executeUpdate instead of executeBatch to avoid
-                // H2's MergedResult class loading issue during shutdown
-                for (var entry : dirtyPlayers.entrySet()) {
+            this.connection.setAutoCommit(false);
+            String sql = "    MERGE INTO balances (uuid, balance, total_earned, total_spent, updated_at)\n    KEY(uuid)\n    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)\n";
+            try (PreparedStatement ps = this.connection.prepareStatement(sql);){
+                for (Map.Entry<UUID, PlayerBalance> entry : dirtyPlayers.entrySet()) {
                     ps.setString(1, entry.getKey().toString());
                     ps.setDouble(2, entry.getValue().getBalance());
                     ps.setDouble(3, entry.getValue().getTotalEarned());
                     ps.setDouble(4, entry.getValue().getTotalSpent());
-                    ps.executeUpdate();
-                    savedCount++;
+                    ps.addBatch();
                 }
+                ps.executeBatch();
             }
-            connection.commit();
-            EcoLogger.debug("Saved %d player balances to H2", savedCount);
-        } catch (SQLException e) {
+            this.connection.commit();
+            LOGGER.at(Level.INFO).log("Saved %d player balances to H2", dirtyPlayers.size());
+        }
+        catch (SQLException e) {
             try {
-                connection.rollback();
-            } catch (SQLException ignored) {}
-            LOGGER.at(Level.SEVERE).log("Failed to batch save: %s", e.getMessage());
-        } catch (NoClassDefFoundError e) {
-            // Classloader already unloaded during shutdown - data should already be saved
-            LOGGER.at(Level.WARNING).log("Shutdown save interrupted (classloader closed): %s", e.getMessage());
-        } finally {
+                this.connection.rollback();
+            }
+            catch (SQLException sQLException) {
+                // empty catch block
+            }
+            LOGGER.at(Level.SEVERE).log("Failed to batch save: %s", (Object)e.getMessage());
+        }
+        finally {
             try {
-                connection.setAutoCommit(true);
-            } catch (SQLException | NoClassDefFoundError ignored) {}
+                this.connection.setAutoCommit(true);
+            }
+            catch (SQLException sQLException) {}
         }
     }
 
     @Override
     public CompletableFuture<Map<UUID, PlayerBalance>> loadAll() {
         return CompletableFuture.supplyAsync(() -> {
-            Map<UUID, PlayerBalance> result = new HashMap<>();
+            HashMap<UUID, PlayerBalance> result = new HashMap<UUID, PlayerBalance>();
             try {
                 String sql = "SELECT uuid, balance, total_earned, total_spent FROM balances";
-                try (Statement stmt = connection.createStatement();
-                     ResultSet rs = stmt.executeQuery(sql)) {
+                try (Statement stmt = this.connection.createStatement();
+                     ResultSet rs = stmt.executeQuery(sql);){
                     while (rs.next()) {
                         UUID uuid = UUID.fromString(rs.getString("uuid"));
                         PlayerBalance pb = new PlayerBalance(uuid);
@@ -329,91 +432,75 @@ public class H2StorageProvider implements StorageProvider {
                         result.put(uuid, pb);
                     }
                 }
-                playerCount = result.size();
-            } catch (SQLException e) {
-                LOGGER.at(Level.SEVERE).log("Failed to load all balances: %s", e.getMessage());
+                this.playerCount = result.size();
+            }
+            catch (SQLException e) {
+                LOGGER.at(Level.SEVERE).log("Failed to load all balances: %s", (Object)e.getMessage());
             }
             return result;
-        }, executor);
+        }, this.executor);
     }
-    
+
     @Override
     public CompletableFuture<Boolean> playerExists(@Nonnull UUID playerUuid) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 String sql = "SELECT 1 FROM balances WHERE uuid = ?";
-                try (PreparedStatement ps = connection.prepareStatement(sql)) {
-                    ps.setString(1, playerUuid.toString());
-                    try (ResultSet rs = ps.executeQuery()) {
-                        return rs.next();
+                try (PreparedStatement ps = this.connection.prepareStatement(sql);){
+                    Boolean bl;
+                    block14: {
+                        ps.setString(1, playerUuid.toString());
+                        ResultSet rs = ps.executeQuery();
+                        try {
+                            bl = rs.next();
+                            if (rs == null) break block14;
+                        }
+                        catch (Throwable t$) {
+                            if (rs != null) {
+                                try {
+                                    rs.close();
+                                }
+                                catch (Throwable x2) {
+                                    t$.addSuppressed(x2);
+                                }
+                            }
+                            throw t$;
+                        }
+                        rs.close();
                     }
+                    return bl;
                 }
-            } catch (SQLException e) {
+            }
+            catch (SQLException e) {
                 return false;
             }
-        }, executor);
+        }, this.executor);
     }
-    
-    /**
-     * Get top N balances directly from database (efficient for leaderboards).
-     * Uses SQL LIMIT to avoid loading all players into memory.
-     * 
-     * @param limit Maximum number of entries to return
-     * @return List of PlayerBalance sorted by balance descending
-     */
-    public CompletableFuture<List<PlayerBalance>> getTopBalances(int limit) {
-        return CompletableFuture.supplyAsync(() -> {
-            List<PlayerBalance> results = new java.util.ArrayList<>();
-            try {
-                String sql = "SELECT uuid, player_name, balance FROM balances ORDER BY balance DESC LIMIT ?";
-                try (PreparedStatement ps = connection.prepareStatement(sql)) {
-                    ps.setInt(1, Math.min(limit, 100)); // Cap at 100 for safety
-                    try (ResultSet rs = ps.executeQuery()) {
-                        while (rs.next()) {
-                            UUID uuid = UUID.fromString(rs.getString("uuid"));
-                            PlayerBalance pb = new PlayerBalance(uuid);
-                            pb.setBalance(rs.getDouble("balance"), "Leaderboard load");
-                            results.add(pb);
-                        }
-                    }
-                }
-            } catch (SQLException e) {
-                LOGGER.at(Level.WARNING).log("Failed to get top balances: %s", e.getMessage());
-            }
-            return results;
-        }, executor);
-    }
-    
+
     @Override
     public CompletableFuture<Void> deletePlayer(@Nonnull UUID playerUuid) {
         return CompletableFuture.runAsync(() -> {
             try {
                 String sql = "DELETE FROM balances WHERE uuid = ?";
-                try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                try (PreparedStatement ps = this.connection.prepareStatement(sql);){
                     ps.setString(1, playerUuid.toString());
                     int affected = ps.executeUpdate();
-                    if (affected > 0) playerCount--;
+                    if (affected > 0) {
+                        --this.playerCount;
+                    }
                 }
-            } catch (SQLException e) {
-                LOGGER.at(Level.SEVERE).log("Failed to delete player %s: %s", playerUuid, e.getMessage());
             }
-        }, executor);
+            catch (SQLException e) {
+                LOGGER.at(Level.SEVERE).log("Failed to delete player %s: %s", (Object)playerUuid, (Object)e.getMessage());
+            }
+        }, this.executor);
     }
-    
-    // ========== Transaction Logging ==========
-    
-    /**
-     * Log a transaction to the database.
-     * Called asynchronously to avoid blocking economy operations.
-     */
+
     public void logTransaction(TransactionEntry entry) {
-        executor.execute(() -> {
+        this.executor.execute(() -> {
             try {
-                String sql = """
-                    INSERT INTO transactions (timestamp, type, source_uuid, target_uuid, player_name, amount)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """;
-                try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                String sql = "    INSERT INTO transactions (timestamp, type, source_uuid, target_uuid, player_name, amount)\n    VALUES (?, ?, ?, ?, ?, ?)\n";
+                try (PreparedStatement ps = this.connection.prepareStatement(sql);){
                     ps.setLong(1, entry.timestamp().toEpochMilli());
                     ps.setString(2, entry.type().name());
                     ps.setString(3, entry.sourcePlayer() != null ? entry.sourcePlayer().toString() : null);
@@ -421,170 +508,119 @@ public class H2StorageProvider implements StorageProvider {
                     ps.setString(5, entry.playerName());
                     ps.setDouble(6, entry.amount());
                     ps.executeUpdate();
-                    EcoLogger.debug("Logged transaction to H2: %s %s %.0f", entry.type(), entry.playerName(), entry.amount());
+                    LOGGER.at(Level.INFO).log("Logged transaction to H2: %s %s %.0f", (Object)entry.type(), (Object)entry.playerName(), (Object)entry.amount());
                 }
-            } catch (SQLException e) {
-                LOGGER.at(Level.WARNING).log("Failed to log transaction: %s", e.getMessage());
+            }
+            catch (SQLException e) {
+                LOGGER.at(Level.WARNING).log("Failed to log transaction: %s", (Object)e.getMessage());
             }
         });
     }
-    
-    /**
-     * Query transactions with optional player filter and pagination (async).
-     */
+
     public CompletableFuture<List<TransactionEntry>> queryTransactionsAsync(String playerFilter, int limit, int offset) {
         return CompletableFuture.supplyAsync(() -> {
-            List<TransactionEntry> results = new ArrayList<>();
+            ArrayList<TransactionEntry> results = new ArrayList<TransactionEntry>();
             try {
-                String sql;
-                if (playerFilter != null && !playerFilter.isEmpty()) {
-                    sql = """
-                        SELECT * FROM transactions 
-                        WHERE LOWER(player_name) LIKE ? 
-                        ORDER BY timestamp DESC 
-                        LIMIT ? OFFSET ?
-                    """;
-                } else {
-                    sql = """
-                        SELECT * FROM transactions 
-                        ORDER BY timestamp DESC 
-                        LIMIT ? OFFSET ?
-                    """;
-                }
-                
-                try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                String sql = playerFilter != null && !playerFilter.isEmpty() ? "    SELECT * FROM transactions\n    WHERE LOWER(player_name) LIKE ?\n    ORDER BY timestamp DESC\n    LIMIT ? OFFSET ?\n" : "    SELECT * FROM transactions\n    ORDER BY timestamp DESC\n    LIMIT ? OFFSET ?\n";
+                try (PreparedStatement ps = this.connection.prepareStatement(sql);){
                     int paramIndex = 1;
                     if (playerFilter != null && !playerFilter.isEmpty()) {
                         ps.setString(paramIndex++, "%" + playerFilter.toLowerCase() + "%");
                     }
                     ps.setInt(paramIndex++, limit);
                     ps.setInt(paramIndex, offset);
-                    
-                    try (ResultSet rs = ps.executeQuery()) {
+                    try (ResultSet rs = ps.executeQuery();){
                         while (rs.next()) {
-                            results.add(resultSetToEntry(rs));
+                            results.add(this.resultSetToEntry(rs));
                         }
                     }
                 }
-            } catch (SQLException e) {
-                LOGGER.at(Level.WARNING).log("Failed to query transactions: %s", e.getMessage());
+            }
+            catch (SQLException e) {
+                LOGGER.at(Level.WARNING).log("Failed to query transactions: %s", (Object)e.getMessage());
             }
             return results;
-        }, executor);
+        }, this.executor);
     }
-    
-    /**
-     * Query transactions (sync, for backward compat).
-     * @deprecated Use queryTransactionsAsync() to avoid potential deadlocks
-     */
+
     @Deprecated
     public List<TransactionEntry> queryTransactions(String playerFilter, int limit, int offset) {
-        return queryTransactionsAsync(playerFilter, limit, offset).join();
+        return this.queryTransactionsAsync(playerFilter, limit, offset).join();
     }
-    
-    /**
-     * Count total transactions matching filter (async).
-     */
+
     public CompletableFuture<Integer> countTransactionsAsync(String playerFilter) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                String sql;
-                if (playerFilter != null && !playerFilter.isEmpty()) {
-                    sql = "SELECT COUNT(*) FROM transactions WHERE LOWER(player_name) LIKE ?";
-                } else {
-                    sql = "SELECT COUNT(*) FROM transactions";
-                }
-                
-                try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                String sql = playerFilter != null && !playerFilter.isEmpty() ? "SELECT COUNT(*) FROM transactions WHERE LOWER(player_name) LIKE ?" : "SELECT COUNT(*) FROM transactions";
+                try (PreparedStatement ps = this.connection.prepareStatement(sql);){
                     if (playerFilter != null && !playerFilter.isEmpty()) {
                         ps.setString(1, "%" + playerFilter.toLowerCase() + "%");
                     }
-                    try (ResultSet rs = ps.executeQuery()) {
-                        if (rs.next()) {
-                            int count = rs.getInt(1);
-                            EcoLogger.debug("H2 transaction count: %d (filter: %s)", count, playerFilter);
-                            return count;
-                        }
+                    try (ResultSet rs = ps.executeQuery();){
+                        if (!rs.next()) return 0;
+                        int count = rs.getInt(1);
+                        LOGGER.at(Level.INFO).log("H2 transaction count: %d (filter: %s)", count, (Object)playerFilter);
+                        Integer n = count;
+                        return n;
                     }
                 }
-            } catch (SQLException e) {
-                LOGGER.at(Level.WARNING).log("Failed to count transactions: %s", e.getMessage());
+            }
+            catch (SQLException e) {
+                LOGGER.at(Level.WARNING).log("Failed to count transactions: %s", (Object)e.getMessage());
             }
             return 0;
-        }, executor);
+        }, this.executor);
     }
-    
-    /**
-     * Count total transactions (sync, for backward compat).
-     * @deprecated Use countTransactionsAsync() to avoid potential deadlocks
-     */
+
     @Deprecated
     public int countTransactions(String playerFilter) {
-        return countTransactionsAsync(playerFilter).join();
+        return this.countTransactionsAsync(playerFilter).join();
     }
-    
+
     private TransactionEntry resultSetToEntry(ResultSet rs) throws SQLException {
         long timestampMs = rs.getLong("timestamp");
         Instant timestamp = Instant.ofEpochMilli(timestampMs);
-        
         String typeStr = rs.getString("type");
         TransactionType type = TransactionType.valueOf(typeStr);
-        
         String sourceUuidStr = rs.getString("source_uuid");
         UUID sourceUuid = sourceUuidStr != null ? UUID.fromString(sourceUuidStr) : null;
-        
         String targetUuidStr = rs.getString("target_uuid");
         UUID targetUuid = targetUuidStr != null ? UUID.fromString(targetUuidStr) : null;
-        
         String playerName = rs.getString("player_name");
         double amount = rs.getDouble("amount");
-        
-        // Re-format timestamp for display
-        java.time.format.DateTimeFormatter formatter = 
-            java.time.format.DateTimeFormatter.ofPattern("HH:mm").withZone(java.time.ZoneId.systemDefault());
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault());
         String formattedTime = formatter.format(timestamp);
-        
         return new TransactionEntry(timestamp, formattedTime, type, sourceUuid, targetUuid, amount, playerName);
     }
-    
-    // ========== Lifecycle ==========
-    
+
     @Override
     public CompletableFuture<Void> shutdown() {
-        // Signal executor to stop accepting new tasks
-        executor.shutdown();
-        
-        // Close connection synchronously - we're already being called during server shutdown
-        // No need to submit to executor since saveAll() has already completed
+        this.executor.shutdown();
         LOGGER.at(Level.INFO).log("H2 shutdown: closing connection...");
         try {
-            if (connection != null && !connection.isClosed()) {
-                connection.close();
+            if (this.connection != null && !this.connection.isClosed()) {
+                this.connection.close();
             }
             LOGGER.at(Level.INFO).log("H2 database connection closed");
-        } catch (SQLException e) {
-            LOGGER.at(Level.WARNING).log("Error closing H2 connection: %s", e.getMessage());
         }
-        
-        // Return completed future since we closed synchronously
+        catch (SQLException e) {
+            LOGGER.at(Level.WARNING).log("Error closing H2 connection: %s", (Object)e.getMessage());
+        }
         return CompletableFuture.completedFuture(null);
     }
-    
+
     @Override
     public String getName() {
         return "H2 Database";
     }
-    
+
     @Override
     public int getPlayerCount() {
-        return playerCount;
+        return this.playerCount;
     }
-    
-    /**
-     * Get the database connection for advanced operations.
-     * Use with caution - prefer dedicated methods.
-     */
+
     public Connection getConnection() {
-        return connection;
+        return this.connection;
     }
 }
+
