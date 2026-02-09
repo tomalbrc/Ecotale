@@ -1,5 +1,6 @@
 package com.ecotale.systems;
 
+import com.buuz135.mhud.MultipleHUD;
 import com.ecotale.hud.BalanceHud;
 import com.hypixel.hytale.server.core.entity.entities.Player;
 import com.hypixel.hytale.server.core.universe.Universe;
@@ -30,6 +31,6 @@ public class BalanceHudSystem {
         assert ref != null;
 
         var player = world.getEntityStore().getStore().getComponent(ref, Player.getComponentType());
-        com.ecotale.util.HudHelper.setCustomHud(player, playerRef, hud);
+        MultipleHUD.getInstance().setCustomHud(player, playerRef, "ecotale", hud);
     }
 }

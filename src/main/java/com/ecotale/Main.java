@@ -1,5 +1,6 @@
 package com.ecotale;
 
+import com.buuz135.mhud.MultipleHUD;
 import com.ecotale.api.EcotaleAPI;
 import com.ecotale.commands.BalanceCommand;
 import com.ecotale.commands.EcoAdminCommand;
@@ -85,7 +86,7 @@ public class Main extends JavaPlugin {
                 // Setup Balance HUD if enabled
                 if (Main.CONFIG.get().isEnableHudDisplay()) {
                     BalanceHud hud = new BalanceHud(playerRef);
-                    com.ecotale.util.HudHelper.setCustomHud(player, playerRef, hud);
+                    MultipleHUD.getInstance().setCustomHud(player, playerRef, "ecotale", hud);
                 }
             }
         });
