@@ -123,7 +123,6 @@ public class EcoAdminCommand extends AbstractAsyncCommand {
                 
                 double oldBalance = Main.getInstance().getEconomyManager().getBalance(playerRef.getUuid());
                 Main.getInstance().getEconomyManager().setBalance(playerRef.getUuid(), amount, "Admin set");
-                BalanceHudSystem.updatePlayerHud(playerRef.getUuid(), amount);
 
                 player.sendMessage(Message.join(
                     Message.raw("Balance set: ").color(Color.GREEN),

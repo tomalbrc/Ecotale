@@ -9,7 +9,7 @@ import java.util.UUID;
 
 /**
  * Tracks active balance HUDs for updates
- * 
+ * <p>
  * Uses static methods for easy access from EconomyManager
  */
 public class BalanceHudSystem {
@@ -28,9 +28,9 @@ public class BalanceHudSystem {
         assert world != null;
 
         var ref = world.getEntityStore().getRefFromUUID(playerUuid);
-        assert ref != null;
-
-        var player = world.getEntityStore().getStore().getComponent(ref, Player.getComponentType());
-        MultipleHUD.getInstance().setCustomHud(player, playerRef, "ecotale", hud);
+        if (ref != null && ref.isValid()) {
+            var player = world.getEntityStore().getStore().getComponent(ref, Player.getComponentType());
+            MultipleHUD.getInstance().setCustomHud(player, playerRef, "ecotale", hud);
+        }
     }
 }
