@@ -81,7 +81,6 @@ public class EcotaleUnlocked implements Economy {
 
     @Override
     public int fractionalDigits(@NotNull final String pluginName) {
-
         return Main.CONFIG.get().getDecimalPlaces();
     }
 
@@ -108,8 +107,6 @@ public class EcotaleUnlocked implements Economy {
     @NotNull
     @Override
     public String format(@NotNull final BigDecimal amount, @NotNull final String currency) {
-
-
         return Main.CONFIG.get().format(amount.doubleValue());
     }
 

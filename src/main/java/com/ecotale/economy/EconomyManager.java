@@ -3,12 +3,11 @@ package com.ecotale.economy;
 import com.ecotale.Main;
 import com.ecotale.api.events.BalanceChangeEvent;
 import com.ecotale.api.events.EcotaleEvents;
-import com.ecotale.api.events.TransactionEvent;
+import com.ecotale.hud.BalanceHud;
 import com.ecotale.storage.H2StorageProvider;
 import com.ecotale.storage.JsonStorageProvider;
 import com.ecotale.storage.MySQLStorageProvider;
 import com.ecotale.storage.StorageProvider;
-import com.ecotale.systems.BalanceHudSystem;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.universe.Universe;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
@@ -211,7 +210,7 @@ public class EconomyManager {
             
             if (balance.deposit(amount, reason)) {
                 dirtyPlayers.add(playerUuid);
-                BalanceHudSystem.updatePlayerHud(playerUuid, balance.getBalance());
+                BalanceHud.updatePlayerHud(playerUuid, balance.getBalance());
                 
                 // Log transaction (skip internal transfer logs)
                 if (reason != null && !reason.startsWith("Transfer")) {
@@ -252,7 +251,7 @@ public class EconomyManager {
             
             if (balance.withdraw(amount, reason)) {
                 dirtyPlayers.add(playerUuid);
-                BalanceHudSystem.updatePlayerHud(playerUuid, balance.getBalance());
+                BalanceHud.updatePlayerHud(playerUuid, balance.getBalance());
                 
                 // Log transaction (skip internal transfer logs)
                 if (reason != null && !reason.startsWith("Transfer")) {
@@ -291,7 +290,7 @@ public class EconomyManager {
                 
                 balance.setBalance(amount, reason);
                 dirtyPlayers.add(playerUuid);
-                BalanceHudSystem.updatePlayerHud(playerUuid, amount);
+                BalanceHud.updatePlayerHud(playerUuid, amount);
                 
                 // Log transaction
                 TransactionType type = (reason != null && reason.contains("reset")) 
@@ -359,8 +358,8 @@ public class EconomyManager {
                 dirtyPlayers.add(to);
                 
                 // Update HUDs
-                BalanceHudSystem.updatePlayerHud(from, fromBalance.getBalance());
-                BalanceHudSystem.updatePlayerHud(to, toBalance.getBalance());
+                BalanceHud.updatePlayerHud(from, fromBalance.getBalance());
+                BalanceHud.updatePlayerHud(to, toBalance.getBalance());
                 
                 // Log transfer
                 transactionLogger.logTransfer(from, resolvePlayerName(from), 

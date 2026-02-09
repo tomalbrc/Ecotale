@@ -1,8 +1,14 @@
 package com.ecotale.hud;
 
+import com.buuz135.mhud.MultipleHUD;
+import com.hypixel.hytale.server.core.entity.entities.Player;
 import com.hypixel.hytale.server.core.entity.entities.player.hud.CustomUIHud;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.ui.builder.UICommandBuilder;
+import com.hypixel.hytale.server.core.universe.Universe;
+import org.jetbrains.annotations.NotNull;
+
+import java.util.UUID;
 
 public class BalanceHud extends CustomUIHud {
     public BalanceHud(PlayerRef playerRef) {
@@ -10,7 +16,7 @@ public class BalanceHud extends CustomUIHud {
     }
 
     @Override
-    protected void build(UICommandBuilder builder) {
+    protected void build(@NotNull UICommandBuilder builder) {
         if (!com.ecotale.Main.CONFIG.get().isEnableHudDisplay()) {
             return;
         }
@@ -31,5 +37,23 @@ public class BalanceHud extends CustomUIHud {
         builder.set("#CurrencyName.Text", prefix);
         builder.set("#BalanceSymbol.Text", symbol);
         builder.set("#BalanceAmount.Text", amount);
+    }
+
+    public static void updatePlayerHud(UUID playerUuid, double newBalance) {
+        var playerRef = Universe.get().getPlayer(playerUuid);
+        assert playerRef != null;
+
+        BalanceHud hud = new BalanceHud(Universe.get().getPlayer(playerUuid));
+
+        assert playerRef.getWorldUuid() != null;
+
+        var world = Universe.get().getWorld(playerRef.getWorldUuid());
+        assert world != null;
+
+        var ref = world.getEntityStore().getRefFromUUID(playerUuid);
+        if (ref != null && ref.isValid()) {
+            var player = world.getEntityStore().getStore().getComponent(ref, Player.getComponentType());
+            MultipleHUD.getInstance().setCustomHud(player, playerRef, "ecotale", hud);
+        }
     }
 }
