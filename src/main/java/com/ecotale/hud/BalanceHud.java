@@ -41,11 +41,10 @@ public class BalanceHud extends CustomUIHud {
 
     public static void updatePlayerHud(UUID playerUuid, double newBalance) {
         var playerRef = Universe.get().getPlayer(playerUuid);
-        assert playerRef != null;
+        if (playerRef == null || playerRef.getWorldUuid() == null)
+            return;
 
         BalanceHud hud = new BalanceHud(Universe.get().getPlayer(playerUuid));
-
-        assert playerRef.getWorldUuid() != null;
 
         var world = Universe.get().getWorld(playerRef.getWorldUuid());
         assert world != null;
