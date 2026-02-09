@@ -1,11 +1,13 @@
 package com.ecotale.hud;
 
 import com.buuz135.mhud.MultipleHUD;
+import com.ecotale.api.EcotaleAPI;
 import com.hypixel.hytale.server.core.entity.entities.Player;
 import com.hypixel.hytale.server.core.entity.entities.player.hud.CustomUIHud;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.ui.builder.UICommandBuilder;
 import com.hypixel.hytale.server.core.universe.Universe;
+import com.hypixel.hytale.server.core.util.NotificationUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.UUID;
@@ -39,7 +41,7 @@ public class BalanceHud extends CustomUIHud {
         builder.set("#BalanceAmount.Text", amount);
     }
 
-    public static void updatePlayerHud(UUID playerUuid, double newBalance) {
+    public static void updatePlayerHud(UUID playerUuid, double newBalance, Double diff) {
         var playerRef = Universe.get().getPlayer(playerUuid);
         if (playerRef == null || playerRef.getWorldUuid() == null)
             return;
@@ -53,6 +55,10 @@ public class BalanceHud extends CustomUIHud {
         if (ref != null && ref.isValid()) {
             var player = world.getEntityStore().getStore().getComponent(ref, Player.getComponentType());
             MultipleHUD.getInstance().setCustomHud(player, playerRef, "ecotale", hud);
+
+            if (diff != null && diff != 0) {
+                NotificationUtil.sendNotification(playerRef.getPacketHandler(), (diff >= 0 ? "+" : "-") + " " + EcotaleAPI.format(diff));
+            }
         }
     }
 }

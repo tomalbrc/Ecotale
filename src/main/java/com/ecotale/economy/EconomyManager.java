@@ -115,7 +115,7 @@ public class EconomyManager {
             }
             if (balance.deposit(amount, reason)) {
                 this.dirtyPlayers.add(playerUuid);
-                BalanceHud.updatePlayerHud(playerUuid, balance.getBalance());
+                BalanceHud.updatePlayerHud(playerUuid, balance.getBalance(), amount);
                 if (reason != null && !reason.startsWith("Transfer")) {
                     TransactionType type = reason.startsWith("Admin") ? TransactionType.GIVE : TransactionType.EARN;
                     this.transactionLogger.logAction(type, playerUuid, this.resolvePlayerName(playerUuid), amount);
@@ -145,7 +145,7 @@ public class EconomyManager {
             }
             if (balance.withdraw(amount, reason)) {
                 this.dirtyPlayers.add(playerUuid);
-                BalanceHud.updatePlayerHud(playerUuid, balance.getBalance());
+                BalanceHud.updatePlayerHud(playerUuid, balance.getBalance(), -amount);
                 if (reason != null && !reason.startsWith("Transfer")) {
                     TransactionType type = reason.startsWith("Admin") ? TransactionType.TAKE : TransactionType.SPEND;
                     this.transactionLogger.logAction(type, playerUuid, this.resolvePlayerName(playerUuid), amount);
@@ -171,7 +171,7 @@ public class EconomyManager {
                 }
                 balance.setBalance(amount, reason);
                 this.dirtyPlayers.add(playerUuid);
-                BalanceHud.updatePlayerHud(playerUuid, amount);
+                BalanceHud.updatePlayerHud(playerUuid, amount, amount - oldBalance);
                 TransactionType type = reason != null && reason.contains("reset") ? TransactionType.RESET : TransactionType.SET;
                 this.transactionLogger.logAction(type, playerUuid, this.resolvePlayerName(playerUuid), amount);
             }
@@ -224,9 +224,13 @@ public class EconomyManager {
             toBalance.depositInternal(amount, "Transfer from " + from + ": " + reason);
             this.dirtyPlayers.add(from);
             this.dirtyPlayers.add(to);
-            BalanceHud.updatePlayerHud(to, toBalance.getBalance());
+
             this.transactionLogger.logTransfer(from, this.resolvePlayerName(from), to, this.resolvePlayerName(to), amount);
             TransferResult transferResult = TransferResult.SUCCESS;
+
+            BalanceHud.updatePlayerHud(to, toBalance.getBalance(), amount);
+            BalanceHud.updatePlayerHud(from, fromBalance.getBalance(), -amount);
+
             lock2.unlock();
             return transferResult;
         } finally {
@@ -293,9 +297,7 @@ public class EconomyManager {
         if (!this.cache.isEmpty()) {
             this.logger.at(Level.INFO).log("Saving %d player balances...", this.cache.size());
             try {
-                StorageProvider storageProvider = this.storage;
-                if (storageProvider instanceof H2StorageProvider) {
-                    H2StorageProvider h2 = (H2StorageProvider) storageProvider;
+                if (this.storage instanceof H2StorageProvider h2) {
                     h2.saveAllSync(this.cache);
                     this.logger.at(Level.INFO).log("Player balances saved successfully (sync)");
                 } else {
@@ -353,7 +355,7 @@ public class EconomyManager {
     }
 
     private void cleanupStaleLocks() {
-        Set onlinePlayers = Universe.get().getPlayers().stream().map(p -> p.getUuid()).collect(Collectors.toSet());
+        Set onlinePlayers = Universe.get().getPlayers().stream().map(PlayerRef::getUuid).collect(Collectors.toSet());
         int removed = 0;
         for (UUID uuid : new HashSet<>(this.playerLocks.keySet())) {
             ReentrantLock lock;
